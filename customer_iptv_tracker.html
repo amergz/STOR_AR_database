@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Customer IPTV Tracker</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -385,25 +383,19 @@
     <h2>☁️ Setup Cloud Sync</h2>
 
     <div class="sync-steps">
-      <b>Cara dapatkan config PERCUMA (5 minit, guna akaun Google):</b><br>
-      1. Pergi ke <b>console.firebase.google.com</b><br>
-      2. Tekan <b>"Add project"</b> → beri nama apa-apa → ikut langkah lalai → Create<br>
-      3. Dalam project, tekan ikon <b>&lt;/&gt; (Web)</b> untuk daftar app baru → beri nama → Register<br>
-      4. Firebase akan tunjuk kod <b>firebaseConfig = {...}</b> — copy <b>SEMUA</b> block tu<br>
-      5. Tampal kat bawah ni, tekan Sambung<br>
-      6. Pergi menu <b>"Firestore Database"</b> di Firebase → Create Database → pilih mode <b>"Test mode"</b> → Enable
+      <b>Cara setup PERCUMA guna Google Sheet (5-10 minit):</b><br>
+      1. Buka <b>sheets.google.com</b> → buat 1 Google Sheet baru (kosong pun boleh)<br>
+      2. Menu <b>Extensions → Apps Script</b><br>
+      3. Padam semua kod sedia ada, tampal <b>kod Apps Script</b> yang admin bagi (rujuk arahan penuh)<br>
+      4. Tekan 💾 Save, kemudian <b>Deploy → New deployment</b><br>
+      5. Pilih jenis <b>"Web app"</b> → Execute as: <b>Me</b> → Who has access: <b>Anyone</b> → Deploy<br>
+      6. Benarkan kebenaran (Authorize access) bila diminta<br>
+      7. Copy <b>URL Web app</b> (berakhir dengan <b>/exec</b>) → tampal kat bawah ni → tekan Sambung
     </div>
 
     <div class="field">
-      <label>Tampal Firebase Config di sini</label>
-      <textarea id="syncConfigText" placeholder='const firebaseConfig = {
-  apiKey: "AIzaSy...",
-  authDomain: "xxx.firebaseapp.com",
-  projectId: "xxx",
-  storageBucket: "xxx.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
-};'></textarea>
+      <label>Tampal URL Web App Google Apps Script di sini</label>
+      <textarea id="syncConfigText" placeholder="https://script.google.com/macros/s/AKfycb.../exec"></textarea>
     </div>
 
     <div id="syncModalStatus" style="font-size:12px;color:#facc15;margin-bottom:10px;"></div>
@@ -422,25 +414,16 @@ let editingId = null;
 let fileHandle = null;
 let autoExportState = 'checking'; // checking | active | needPermission | notSetup | unsupported | error
 let useCloud = false;
-let db = null;
-let unsubscribeSnapshot = null;
+let sheetUrl = null;
+let syncPollTimer = null;
 
-/* ---------- Cloud Sync (Firebase Firestore) ---------- */
-function loadFirebaseConfig() {
-  return JSON.parse(localStorage.getItem('firebase_config') || 'null');
+/* ---------- Cloud Sync (Google Sheet via Apps Script Web App) ---------- */
+const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycby7tDGxaX6Jj8XDRhhPfJU_WjrJ2l7t_ek2rnS7F-Wq0yIMfs0vyjAZlaB0d0qhk2tk/exec';
+function loadSheetConfig() {
+  return localStorage.getItem('sheet_sync_url') || DEFAULT_SHEET_URL;
 }
-function saveFirebaseConfigToStorage(cfg) {
-  localStorage.setItem('firebase_config', JSON.stringify(cfg));
-}
-function parseFirebaseConfigText(text) {
-  const keys = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-  const config = {};
-  keys.forEach(k => {
-    const re = new RegExp(k + '\\s*:\\s*["\']([^"\']+)["\']');
-    const m = text.match(re);
-    if (m) config[k] = m[1];
-  });
-  return config;
+function saveSheetConfigToStorage(url) {
+  localStorage.setItem('sheet_sync_url', url);
 }
 
 function updateSyncUI() {
@@ -455,30 +438,49 @@ function updateSyncUI() {
   }
 }
 
-async function initFirebase(cfg) {
-  if (!window.firebase) throw new Error('Firebase SDK gagal dimuat (semak sambungan internet)');
-  if (!firebase.apps.length) {
-    firebase.initializeApp(cfg);
-  }
-  db = firebase.firestore();
-  if (unsubscribeSnapshot) unsubscribeSnapshot();
-  unsubscribeSnapshot = db.collection('customers').onSnapshot(
-    snapshot => {
-      data = snapshot.docs.map(d => d.data());
-      localStorage.setItem('iptv_customers', JSON.stringify(data)); // cache offline
-      render();
-    },
-    err => { console.error('Snapshot error:', err); }
-  );
+async function fetchSheetData(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Respons tidak sah dari Google Sheet');
+  return json.data || [];
+}
+
+async function pushToSheet(url, payload) {
+  const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Gagal simpan ke Google Sheet');
+  return json;
+}
+
+async function initSheetSync(url) {
+  const rows = await fetchSheetData(url);
+  data = rows;
+  localStorage.setItem('iptv_customers', JSON.stringify(data));
+  sheetUrl = url;
   useCloud = true;
   updateSyncUI();
+  render();
+
+  if (syncPollTimer) clearInterval(syncPollTimer);
+  syncPollTimer = setInterval(async () => {
+    try {
+      const rows = await fetchSheetData(sheetUrl);
+      data = rows;
+      localStorage.setItem('iptv_customers', JSON.stringify(data));
+      render();
+    } catch (err) {
+      console.error('Sync refresh gagal:', err);
+    }
+  }, 15000);
 }
 
 async function initSyncOnLoad() {
-  const cfg = loadFirebaseConfig();
-  if (!cfg) { updateSyncUI(); return; }
+  const url = loadSheetConfig();
+  if (!url) { updateSyncUI(); return; }
   try {
-    await initFirebase(cfg);
+    await initSheetSync(url);
   } catch (err) {
     console.error('Auto reconnect cloud sync gagal:', err);
     useCloud = false;
@@ -487,9 +489,9 @@ async function initSyncOnLoad() {
 }
 
 function openSyncModal() {
-  document.getElementById('syncConfigText').value = '';
+  document.getElementById('syncConfigText').value = sheetUrl || '';
   document.getElementById('syncModalStatus').textContent = useCloud
-    ? 'Cloud Sync sudah AKTIF. Tampal config lain untuk tukar, atau tekan "Padam Sync" untuk guna storan local sahaja.'
+    ? 'Cloud Sync sudah AKTIF. Tampal URL lain untuk tukar, atau tekan "Padam Sync" untuk guna storan local sahaja.'
     : '';
   document.getElementById('disconnectSyncBtn').style.display = useCloud ? 'block' : 'none';
   document.getElementById('syncModalBg').classList.add('show');
@@ -499,29 +501,28 @@ function closeSyncModal() {
 }
 
 async function connectSync() {
-  const text = document.getElementById('syncConfigText').value;
-  const cfg = parseFirebaseConfigText(text);
-  if (!cfg.apiKey || !cfg.projectId || !cfg.appId) {
-    alert('Config tidak lengkap. Pastikan awak copy SEMUA baris config dari Firebase Console (apiKey, projectId, appId, dll).');
+  const url = document.getElementById('syncConfigText').value.trim();
+  if (!url || !url.includes('script.google.com')) {
+    alert('URL tidak sah. Pastikan awak copy URL Web App dari Apps Script (berakhir dengan /exec).');
     return;
   }
   try {
-    await initFirebase(cfg);
-    saveFirebaseConfigToStorage(cfg);
+    await initSheetSync(url);
+    saveSheetConfigToStorage(url);
     closeSyncModal();
-    alert('✅ Cloud Sync berjaya disambung! Data sekarang sync merentasi semua device.');
+    alert('✅ Cloud Sync berjaya disambung ke Google Sheet! Data akan refresh automatik setiap 15 saat merentasi semua device.');
   } catch (err) {
     console.error(err);
-    alert('❌ Gagal sambung. Sila semak config Firebase awak.\nError: ' + err.message);
+    alert('❌ Gagal sambung. Sila semak URL Web App & pastikan "Who has access" = "Anyone".\nError: ' + err.message);
   }
 }
 
 function disconnectSync() {
   if (!confirm('Berhenti Cloud Sync? Data akan kembali guna storan local peranti ini sahaja (tak sync merentasi device).')) return;
-  localStorage.removeItem('firebase_config');
-  if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  localStorage.removeItem('sheet_sync_url');
+  if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
   useCloud = false;
-  db = null;
+  sheetUrl = null;
   data = JSON.parse(localStorage.getItem('iptv_customers') || '[]');
   updateSyncUI();
   render();
@@ -1025,10 +1026,11 @@ function saveCustomer() {
 
   const customerObj = { id, pass, iptv, tarikhSubscribe, tempoh, phone };
 
-  if (useCloud && db) {
-    db.collection('customers').doc(encodeURIComponent(id)).set(customerObj)
-      .then(() => attemptAutoExport())
-      .catch(err => alert('Gagal simpan ke cloud: ' + err.message));
+  if (useCloud && sheetUrl) {
+    pushToSheet(sheetUrl, { action: 'upsert', customer: customerObj })
+      .then(() => fetchSheetData(sheetUrl))
+      .then(rows => { data = rows; localStorage.setItem('iptv_customers', JSON.stringify(data)); render(); attemptAutoExport(); })
+      .catch(err => alert('Gagal simpan ke Google Sheet: ' + err.message));
   } else {
     if (editingId) {
       const idx = data.findIndex(x => x.id === editingId);
@@ -1045,10 +1047,11 @@ function saveCustomer() {
 function deleteCustomer() {
   if (!confirm('Padam customer ini?')) return;
 
-  if (useCloud && db) {
-    db.collection('customers').doc(encodeURIComponent(editingId)).delete()
-      .then(() => attemptAutoExport())
-      .catch(err => alert('Gagal padam dari cloud: ' + err.message));
+  if (useCloud && sheetUrl) {
+    pushToSheet(sheetUrl, { action: 'delete', id: editingId })
+      .then(() => fetchSheetData(sheetUrl))
+      .then(rows => { data = rows; localStorage.setItem('iptv_customers', JSON.stringify(data)); render(); attemptAutoExport(); })
+      .catch(err => alert('Gagal padam dari Google Sheet: ' + err.message));
   } else {
     data = data.filter(x => x.id !== editingId);
     save();

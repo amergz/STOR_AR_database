@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer IPTV Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding-bottom: 90px;
+  }
+  header {
+    background: linear-gradient(135deg, #1e3a8a, #1e40af);
+    padding: 18px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
+  header h1 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 700;
+  }
+  .summary {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px 0;
+    overflow-x: auto;
+  }
+  .summary .box {
+    flex: 1;
+    min-width: 78px;
+    background: #1e293b;
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+  }
+  .summary .box .num { font-size: 20px; font-weight: 700; }
+  .summary .box .lbl { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+  .active-num { color: #4ade80; }
+  .soon-num { color: #facc15; }
+  .expired-num { color: #f87171; }
+  .total-num { color: #60a5fa; }
+
+  .search-bar {
+    padding: 12px 16px;
+  }
+  .search-bar input {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+
+  .list {
+    padding: 0 16px;
+  }
+  .card {
+    background: #1e293b;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border-left: 5px solid #64748b;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .card:active { transform: scale(0.98); }
+  .card.active { border-left-color: #4ade80; }
+  .card.soon { border-left-color: #facc15; }
+  .card.expired { border-left-color: #f87171; }
+
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .card-top .iptv { font-weight: 700; font-size: 15px; }
+  .card-top .id { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .badge.active { background: #14532d; color: #4ade80; }
+  .badge.soon { background: #713f12; color: #facc15; }
+  .badge.expired { background: #7f1d1d; color: #f87171; }
+
+  .card-bottom {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #cbd5e1;
+  }
+  .days-left { font-weight: 700; font-size: 13px; }
+
+  .empty {
+    text-align: center;
+    color: #64748b;
+    padding: 40px 20px;
+    font-size: 14px;
+  }
+
+  .fab {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #2563eb;
+    color: white;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    font-size: 28px;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+  }
+  .export-btn {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: 90px;
+    background: #16a34a;
+    color: white;
+    border: none;
+    padding: 0 16px;
+    height: 48px;
+    border-radius: 24px;
+    font-size: 12.5px;
+    font-weight: 700;
+    box-shadow: 0 4px 14px rgba(22,163,74,0.5);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .export-btn.state-notsetup { background: #2563eb; box-shadow: 0 4px 14px rgba(37,99,235,0.5); }
+  .export-btn.state-needpermission { background: #d97706; box-shadow: 0 4px 14px rgba(217,119,6,0.5); }
+  .export-btn.state-error { background: #dc2626; box-shadow: 0 4px 14px rgba(220,38,38,0.5); }
+  .export-btn.state-active { background: #16a34a; }
+  .export-btn.state-unsupported { background: #16a34a; }
+
+  .modal-bg {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 50;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: #1e293b;
+    width: 100%;
+    max-width: 480px;
+    border-radius: 20px 20px 0 0;
+    padding: 20px;
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+  .modal h2 {
+    margin: 0 0 16px;
+    font-size: 17px;
+  }
+  .field {
+    margin-bottom: 14px;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 5px;
+  }
+  .field input, .field select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+  .field select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2394a3b8'><path d='M7 10l5 5 5-5z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 20px;
+    padding-right: 34px;
+  }
+  .smart-paste-box {
+    background: #172554;
+    border: 1.5px dashed #3b82f6;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 18px;
+  }
+  .smart-paste-box label {
+    display: block;
+    font-size: 12px;
+    color: #93c5fd;
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .smart-paste-box input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #3b82f6;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+  .smart-paste-box .hint {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 6px;
+  }
+  .smart-paste-status {
+    font-size: 11.5px;
+    margin-top: 6px;
+    font-weight: 600;
+  }
+  .smart-paste-status.ok { color: #4ade80; }
+  .smart-paste-status.fail { color: #f87171; }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .btn-save { background: #2563eb; color: white; }
+  .btn-delete { background: #7f1d1d; color: #f87171; }
+  .btn-cancel { background: #334155; color: #e2e8f0; }
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #334155;
+    font-size: 13px;
+  }
+  .detail-row span:first-child { color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📺 Customer IPTV Tracker</h1>
+</header>
+
+<div class="summary">
+  <div class="box"><div class="num total-num" id="sumTotal">0</div><div class="lbl">Total</div></div>
+  <div class="box"><div class="num active-num" id="sumActive">0</div><div class="lbl">Active</div></div>
+  <div class="box"><div class="num soon-num" id="sumSoon">0</div><div class="lbl">Nak Habis</div></div>
+  <div class="box"><div class="num expired-num" id="sumExpired">0</div><div class="lbl">Expired</div></div>
+</div>
+
+<div class="search-bar">
+  <input type="text" id="searchInput" placeholder="Cari ID / IPTV / No. Telefon...">
+</div>
+
+<div class="list" id="list"></div>
+
+<button class="export-btn" id="exportBtn" onclick="handleExportBtnClick()">⬇ Export Excel</button>
+<button class="fab" onclick="openAddModal()">+</button>
+
+<!-- Modal -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2 id="modalTitle">Tambah Customer</h2>
+
+    <div class="smart-paste-box">
+      <label>🪄 Smart Paste (auto-isi ID / PASS / Tempoh)</label>
+      <input type="text" id="fSmartPaste" placeholder="Contoh: 7726201984635981 / 03741269 / 375 days" autocomplete="off">
+      <div class="hint">Tampal terus format: ID / PASS / XXX days — akan auto isi field bawah</div>
+      <div class="smart-paste-status" id="smartPasteStatus"></div>
+    </div>
+
+    <div class="field">
+      <label>ID</label>
+      <input type="text" id="fId" placeholder="Contoh: 001">
+    </div>
+    <div class="field">
+      <label>PASSWORD</label>
+      <input type="text" id="fPass" placeholder="Contoh: pass123">
+    </div>
+    <div class="field">
+      <label>IPTV / PACKAGE</label>
+      <select id="fIptv" onchange="handleIptvChange()"></select>
+    </div>
+    <div class="field">
+      <label>TARIKH SUBSCRIBE</label>
+      <input type="date" id="fDate">
+    </div>
+    <div class="field">
+      <label>TEMPOH (HARI)</label>
+      <input type="number" id="fDuration" value="30">
+    </div>
+    <div class="field">
+      <label>NO. TELEFON</label>
+      <input type="tel" id="fPhone" placeholder="Contoh: 012-3456789">
+    </div>
+
+    <div id="detailInfo"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal()">Batal</button>
+      <button class="btn btn-delete" id="deleteBtn" style="display:none" onclick="deleteCustomer()">Padam</button>
+      <button class="btn btn-save" onclick="saveCustomer()">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let data = JSON.parse(localStorage.getItem('iptv_customers') || '[]');
+let editingId = null;
+let fileHandle = null;
+let autoExportState = 'checking'; // checking | active | needPermission | notSetup | unsupported | error
+
+/* ---------- Senarai IPTV / Package (default + custom yang ditambah user) ---------- */
+const DEFAULT_IPTV_LIST = [
+  'Myiptv4k/wawa', 'HOAHD', 'SYborgTV', 'WHHD', 'IPTV4k',
+  'SyokTV', 'OTT TvTech', 'IView', 'Iview Plus'
+];
+const ADD_NEW_VALUE = '__add_new__';
+
+function getIptvList() {
+  const custom = JSON.parse(localStorage.getItem('iptv_custom_list') || '[]');
+  const combined = [...DEFAULT_IPTV_LIST];
+  custom.forEach(x => { if (!combined.includes(x)) combined.push(x); });
+  return combined;
+}
+
+function saveCustomIptv(name) {
+  const custom = JSON.parse(localStorage.getItem('iptv_custom_list') || '[]');
+  if (!custom.includes(name)) {
+    custom.push(name);
+    localStorage.setItem('iptv_custom_list', JSON.stringify(custom));
+  }
+}
+
+function renderIptvOptions(selectedValue) {
+  const sel = document.getElementById('fIptv');
+  const list = getIptvList();
+  // pastikan value semasa (contoh data lama) tetap ada dalam list walau bukan default/custom
+  if (selectedValue && !list.includes(selectedValue)) list.push(selectedValue);
+
+  sel.innerHTML = '';
+  list.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  const addOpt = document.createElement('option');
+  addOpt.value = ADD_NEW_VALUE;
+  addOpt.textContent = '➕ Tambah IPTV Baru...';
+  sel.appendChild(addOpt);
+
+  sel.value = selectedValue && list.includes(selectedValue) ? selectedValue : list[0];
+}
+
+function handleIptvChange() {
+  const sel = document.getElementById('fIptv');
+  if (sel.value !== ADD_NEW_VALUE) return;
+
+  const name = prompt('Nama IPTV / Package baru:');
+  if (name && name.trim()) {
+    const trimmed = name.trim();
+    saveCustomIptv(trimmed);
+    renderIptvOptions(trimmed);
+  } else {
+    // user cancel - balik ke pilihan pertama
+    renderIptvOptions(getIptvList()[0]);
+  }
+}
+
+function save() {
+  localStorage.setItem('iptv_customers', JSON.stringify(data));
+  render();
+  attemptAutoExport();
+}
+
+/* ---------- IndexedDB helper (simpan file handle merentasi sesi) ---------- */
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('iptv_tracker_db', 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore('handles'); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSetHandle(handle) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'exportFile');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetHandle() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get('exportFile');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* ---------- Build workbook (dipakai oleh auto & manual export) ---------- */
+function buildWorkbook() {
+  const rows = data.map(c => {
+    const info = calcInfo(c);
+    const statusLabel = info.status === 'active' ? 'ACTIVE' : (info.status === 'soon' ? 'NAK HABIS' : 'EXPIRED');
+    return {
+      'ID': c.id,
+      'PASS': c.pass,
+      'IPTV': c.iptv,
+      'BULAN SUBSCRIBE': c.tarikhSubscribe,
+      'TEMPOH (HARI)': c.tempoh,
+      'TARIKH TAMAT': fmtDate(info.tamatDate),
+      'REMAINING DAYS': info.diffDays,
+      'STATUS': statusLabel,
+      'NO. TELEFON': c.phone || ''
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    {wch:8},{wch:14},{wch:18},{wch:16},{wch:14},{wch:14},{wch:14},{wch:12},{wch:16}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Customer IPTV');
+  return wb;
+}
+
+/* ---------- Auto-export: overwrite terus file yang sama ---------- */
+async function attemptAutoExport() {
+  if (!('showSaveFilePicker' in window)) {
+    autoExportState = 'unsupported';
+    updateExportBtn();
+    return;
+  }
+  if (!fileHandle) {
+    autoExportState = 'notSetup';
+    updateExportBtn();
+    return;
+  }
+  try {
+    let perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+      perm = await fileHandle.requestPermission({ mode: 'readwrite' });
+    }
+    if (perm !== 'granted') {
+      autoExportState = 'needPermission';
+      updateExportBtn();
+      return;
+    }
+    const wb = buildWorkbook();
+    const arrBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const writable = await fileHandle.createWritable();
+    await writable.write(arrBuf);
+    await writable.close();
+    autoExportState = 'active';
+    updateExportBtn();
+  } catch (err) {
+    console.error('Auto export gagal:', err);
+    autoExportState = 'error';
+    updateExportBtn();
+  }
+}
+
+/* ---------- Setup: pilih/tukar file sekali untuk auto-export ---------- */
+async function setupAutoExport() {
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: 'Database_Customer_IPTV.xlsx',
+      types: [{
+        description: 'Excel File',
+        accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+      }]
+    });
+    fileHandle = handle;
+    await idbSetHandle(handle);
+    await attemptAutoExport();
+  } catch (err) {
+    // user cancel picker - biarkan je
+    console.log('Setup dibatalkan atau gagal', err);
+  }
+}
+
+/* ---------- Manual export (fallback untuk browser tak support) ---------- */
+function manualExport() {
+  if (data.length === 0) { alert('Tiada data untuk export.'); return; }
+  const wb = buildWorkbook();
+  XLSX.writeFile(wb, 'Database_Customer_IPTV.xlsx');
+}
+
+function handleExportBtnClick() {
+  if (autoExportState === 'unsupported') {
+    manualExport();
+  } else if (autoExportState === 'notSetup') {
+    setupAutoExport();
+  } else if (autoExportState === 'needPermission') {
+    attemptAutoExport();
+  } else if (autoExportState === 'active') {
+    // sudah aktif - tap untuk tukar lokasi file
+    if (confirm('Auto-Export sudah aktif. Nak tukar lokasi/nama file?')) {
+      setupAutoExport();
+    }
+  } else if (autoExportState === 'error') {
+    attemptAutoExport();
+  }
+}
+
+function updateExportBtn() {
+  const btn = document.getElementById('exportBtn');
+  btn.className = 'export-btn';
+  switch (autoExportState) {
+    case 'active':
+      btn.classList.add('state-active');
+      btn.textContent = '✅ Auto-Export ON';
+      break;
+    case 'needPermission':
+      btn.classList.add('state-needpermission');
+      btn.textContent = '🔓 Tap Aktifkan Auto-Export';
+      break;
+    case 'notSetup':
+      btn.classList.add('state-notsetup');
+      btn.textContent = '🔗 Setup Auto-Export';
+      break;
+    case 'unsupported':
+      btn.classList.add('state-unsupported');
+      btn.textContent = '⬇ Export Excel';
+      break;
+    case 'error':
+      btn.classList.add('state-error');
+      btn.textContent = '⚠️ Export Gagal - Tap Cuba Lagi';
+      break;
+    default:
+      btn.textContent = '⏳ Loading...';
+  }
+}
+
+/* ---------- Init: cuba restore file handle dari sesi lepas ---------- */
+async function initAutoExport() {
+  if (!('showSaveFilePicker' in window)) {
+    autoExportState = 'unsupported';
+    updateExportBtn();
+    return;
+  }
+  try {
+    const handle = await idbGetHandle();
+    if (handle) {
+      fileHandle = handle;
+      const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+      autoExportState = perm === 'granted' ? 'active' : 'needPermission';
+    } else {
+      autoExportState = 'notSetup';
+    }
+  } catch (err) {
+    console.error('Init auto export gagal', err);
+    autoExportState = 'notSetup';
+  }
+  updateExportBtn();
+}
+
+function calcInfo(cust) {
+  const subDate = new Date(cust.tarikhSubscribe);
+  const tamatDate = new Date(subDate);
+  tamatDate.setDate(tamatDate.getDate() + Number(cust.tempoh || 30));
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const diffDays = Math.ceil((tamatDate - today) / (1000*60*60*24));
+
+  let status = 'active';
+  if (diffDays <= 0) status = 'expired';
+  else if (diffDays <= 5) status = 'soon';
+
+  return { tamatDate, diffDays, status };
+}
+
+function fmtDate(d) {
+  return d.toLocaleDateString('ms-MY', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+
+function render() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+
+  let total=0, active=0, soon=0, expired=0;
+
+  const filtered = data.filter(c =>
+    (c.id||'').toLowerCase().includes(search) ||
+    (c.iptv||'').toLowerCase().includes(search) ||
+    (c.phone||'').toLowerCase().includes(search)
+  );
+
+  // Sort by remaining days ascending (paling urgent atas)
+  filtered.sort((a,b) => calcInfo(a).diffDays - calcInfo(b).diffDays);
+
+  data.forEach(c => {
+    const info = calcInfo(c);
+    total++;
+    if (info.status === 'active') active++;
+    else if (info.status === 'soon') soon++;
+    else expired++;
+  });
+
+  document.getElementById('sumTotal').textContent = total;
+  document.getElementById('sumActive').textContent = active;
+  document.getElementById('sumSoon').textContent = soon;
+  document.getElementById('sumExpired').textContent = expired;
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="empty">Tiada customer lagi.<br>Tekan butang + untuk tambah.</div>';
+    return;
+  }
+
+  filtered.forEach(c => {
+    const info = calcInfo(c);
+    const statusLabel = info.status === 'active' ? 'ACTIVE' : (info.status === 'soon' ? 'NAK HABIS' : 'EXPIRED');
+    const daysLabel = info.diffDays > 0 ? `${info.diffDays} hari lagi` : `Expired ${Math.abs(info.diffDays)} hari lalu`;
+
+    const card = document.createElement('div');
+    card.className = `card ${info.status}`;
+    card.onclick = () => openEditModal(c.id);
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="iptv">${escapeHtml(c.iptv || '-')}</div>
+          <div class="id">ID: ${escapeHtml(c.id)} ${c.phone ? '· 📞 '+escapeHtml(c.phone) : ''}</div>
+        </div>
+        <div class="badge ${info.status}">${statusLabel}</div>
+      </div>
+      <div class="card-bottom">
+        <span>Tamat: ${fmtDate(info.tamatDate)}</span>
+        <span class="days-left">${daysLabel}</span>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ---------- Smart Paste: "ID / PASS / 375 days" -> auto isi field ---------- */
+function parseSmartPaste(text) {
+  if (!text || !text.trim()) return null;
+  let parts = text.split('/');
+  if (parts.length < 3) parts = text.split('|'); // fallback separator
+  if (parts.length < 3) return null;
+
+  const id = parts[0].trim();
+  const pass = parts[1].trim();
+  const daysMatch = parts.slice(2).join('/').match(/\d+/);
+  const tempoh = daysMatch ? daysMatch[0] : '';
+
+  if (!id || !pass || !tempoh) return null;
+  return { id, pass, tempoh };
+}
+
+function handleSmartPaste() {
+  const raw = document.getElementById('fSmartPaste').value;
+  const statusEl = document.getElementById('smartPasteStatus');
+  const parsed = parseSmartPaste(raw);
+
+  if (!raw.trim()) { statusEl.textContent = ''; statusEl.className = 'smart-paste-status'; return; }
+
+  if (parsed) {
+    document.getElementById('fId').value = parsed.id;
+    document.getElementById('fPass').value = parsed.pass;
+    document.getElementById('fDuration').value = parsed.tempoh;
+    statusEl.textContent = `✅ Auto-isi: ID=${parsed.id} · PASS=${parsed.pass} · ${parsed.tempoh} hari`;
+    statusEl.className = 'smart-paste-status ok';
+  } else {
+    statusEl.textContent = '⚠️ Format tak dikenali. Guna: ID / PASS / XXX days';
+    statusEl.className = 'smart-paste-status fail';
+  }
+}
+
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Tambah Customer';
+  document.getElementById('fSmartPaste').value = '';
+  document.getElementById('smartPasteStatus').textContent = '';
+  document.getElementById('smartPasteStatus').className = 'smart-paste-status';
+  document.getElementById('fId').value = '';
+  document.getElementById('fPass').value = '';
+  renderIptvOptions(null);
+  document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('fDuration').value = 30;
+  document.getElementById('fPhone').value = '';
+  document.getElementById('detailInfo').innerHTML = '';
+  document.getElementById('deleteBtn').style.display = 'none';
+  document.getElementById('fId').disabled = false;
+  document.getElementById('modalBg').classList.add('show');
+}
+
+function openEditModal(id) {
+  const c = data.find(x => x.id === id);
+  if (!c) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Detail Customer';
+  document.getElementById('fSmartPaste').value = '';
+  document.getElementById('smartPasteStatus').textContent = '';
+  document.getElementById('smartPasteStatus').className = 'smart-paste-status';
+  document.getElementById('fId').value = c.id;
+  document.getElementById('fId').disabled = true;
+  document.getElementById('fPass').value = c.pass || '';
+  renderIptvOptions(c.iptv || null);
+  document.getElementById('fDate').value = c.tarikhSubscribe;
+  document.getElementById('fDuration').value = c.tempoh || 30;
+  document.getElementById('fPhone').value = c.phone || '';
+
+  const info = calcInfo(c);
+  document.getElementById('detailInfo').innerHTML = `
+    <div class="detail-row"><span>Tarikh Tamat</span><span>${fmtDate(info.tamatDate)}</span></div>
+    <div class="detail-row"><span>Baki Hari</span><span>${info.diffDays}</span></div>
+  `;
+
+  document.getElementById('deleteBtn').style.display = 'block';
+  document.getElementById('modalBg').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modalBg').classList.remove('show');
+}
+
+function saveCustomer() {
+  const id = document.getElementById('fId').value.trim();
+  const pass = document.getElementById('fPass').value.trim();
+  const iptv = document.getElementById('fIptv').value.trim();
+  const tarikhSubscribe = document.getElementById('fDate').value;
+  const tempoh = document.getElementById('fDuration').value;
+  const phone = document.getElementById('fPhone').value.trim();
+
+  if (!id) { alert('Sila isi ID'); return; }
+  if (!tarikhSubscribe) { alert('Sila isi Tarikh Subscribe'); return; }
+  if (iptv === ADD_NEW_VALUE) { alert('Sila pilih atau tambah nama IPTV dahulu'); return; }
+
+  if (editingId) {
+    const idx = data.findIndex(x => x.id === editingId);
+    data[idx] = { id, pass, iptv, tarikhSubscribe, tempoh, phone };
+  } else {
+    if (data.some(x => x.id === id)) { alert('ID sudah wujud!'); return; }
+    data.push({ id, pass, iptv, tarikhSubscribe, tempoh, phone });
+  }
+
+  save();
+  closeModal();
+}
+
+function deleteCustomer() {
+  if (!confirm('Padam customer ini?')) return;
+  data = data.filter(x => x.id !== editingId);
+  save();
+  closeModal();
+}
+
+document.getElementById('searchInput').addEventListener('input', render);
+document.getElementById('fSmartPaste').addEventListener('input', handleSmartPaste);
+
+render();
+initAutoExport();
+</script>
+</body>
+</html>

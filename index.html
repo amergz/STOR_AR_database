@@ -338,9 +338,9 @@
     <h2 id="modalTitle">Tambah Customer</h2>
 
     <div class="smart-paste-box">
-      <label>🪄 Smart Paste (auto-isi ID / PASS / Tempoh)</label>
-      <input type="text" id="fSmartPaste" placeholder="Contoh: 7726201984635981 / 03741269 / 375 days" autocomplete="off">
-      <div class="hint">Tampal terus format: ID / PASS / XXX days — akan auto isi field bawah</div>
+      <label>🪄 Smart Paste (auto-isi ID / PASS / IPTV / Tempoh)</label>
+      <textarea id="fSmartPaste" rows="3" placeholder="Contoh 1: 7726201984635981 / 03741269 / 375 days&#10;&#10;Contoh 2:&#10;Myiptv4k / wawa 12 bulan&#10;User : 7726201984635981&#10;Pass : 03741269" autocomplete="off" oninput="handleSmartPaste()"></textarea>
+      <div class="hint">Tampal format ID/PASS/hari ATAU format label (User:/Pass:/IPTV:/tempoh) — auto isi field bawah</div>
       <div class="smart-paste-status" id="smartPasteStatus"></div>
     </div>
 
@@ -859,9 +859,64 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
-/* ---------- Smart Paste: "ID / PASS / 375 days" -> auto isi field ---------- */
-function parseSmartPaste(text) {
-  if (!text || !text.trim()) return null;
+/* ---------- Smart Paste: sokong format single-line & multi-line ---------- */
+function parseDurationToDays(str) {
+  const m = str.match(/(\d+)\s*(bulan|hari|days?)/i);
+  if (!m) return null;
+  const num = parseInt(m[1], 10);
+  const unit = m[2].toLowerCase();
+  if (unit.startsWith('bulan')) return String(num * 30);
+  return String(num);
+}
+
+function parseMultilineFormat(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+  let id = null, pass = null, iptv = null, tempoh = null;
+
+  lines.forEach(line => {
+    let m;
+    if ((m = line.match(/^(?:iptv\s*\/?\s*package|iptv|package)\s*:\s*(.+)$/i))) {
+      iptv = m[1].trim();
+      return;
+    }
+    if ((m = line.match(/^(?:user(?:name)?|id)\s*:\s*(.+)$/i))) {
+      id = m[1].trim();
+      return;
+    }
+    if ((m = line.match(/^pass(?:word)?\s*:\s*(.+)$/i))) {
+      pass = m[1].trim();
+      return;
+    }
+    if ((m = line.match(/^tempoh\s*(?:\(hari\))?\s*:\s*(.+)$/i))) {
+      const d = parseDurationToDays(m[1]);
+      if (d) tempoh = d;
+      return;
+    }
+    if (!tempoh) {
+      const durMatch = line.match(/(\d+)\s*(bulan|hari|days?)\b/i);
+      if (durMatch) {
+        tempoh = parseDurationToDays(durMatch[0]);
+        if (!iptv) {
+          iptv = line.replace(durMatch[0], '').trim().replace(/[-–:\/\s]+$/, '').trim();
+        }
+      }
+    }
+  });
+
+  if (iptv) {
+    const durInIptv = iptv.match(/(\d+)\s*(bulan|hari|days?)\b/i);
+    if (durInIptv) {
+      if (!tempoh) tempoh = parseDurationToDays(durInIptv[0]);
+      iptv = iptv.replace(durInIptv[0], '').trim();
+    }
+    iptv = iptv.replace(/\s*\/\s*/g, '/').trim();
+  }
+
+  if (!id || !pass) return null;
+  return { id, pass, tempoh: tempoh || '30', iptv };
+}
+
+function parseSingleLineFormat(text) {
   let parts = text.split('/');
   if (parts.length < 3) parts = text.split('|'); // fallback separator
   if (parts.length < 3) return null;
@@ -872,7 +927,14 @@ function parseSmartPaste(text) {
   const tempoh = daysMatch ? daysMatch[0] : '';
 
   if (!id || !pass || !tempoh) return null;
-  return { id, pass, tempoh };
+  return { id, pass, tempoh, iptv: null };
+}
+
+function parseSmartPaste(text) {
+  if (!text || !text.trim()) return null;
+  const multi = parseMultilineFormat(text);
+  if (multi) return multi;
+  return parseSingleLineFormat(text);
 }
 
 function handleSmartPaste() {
@@ -886,10 +948,16 @@ function handleSmartPaste() {
     document.getElementById('fId').value = parsed.id;
     document.getElementById('fPass').value = parsed.pass;
     document.getElementById('fDuration').value = parsed.tempoh;
-    statusEl.textContent = `✅ Auto-isi: ID=${parsed.id} · PASS=${parsed.pass} · ${parsed.tempoh} hari`;
+    if (parsed.iptv) {
+      saveCustomIptv(parsed.iptv);
+      renderIptvOptions(parsed.iptv);
+    }
+    let msg = `✅ Auto-isi: ID=${parsed.id} · PASS=${parsed.pass} · ${parsed.tempoh} hari`;
+    if (parsed.iptv) msg += ` · IPTV=${parsed.iptv}`;
+    statusEl.textContent = msg;
     statusEl.className = 'smart-paste-status ok';
   } else {
-    statusEl.textContent = '⚠️ Format tak dikenali. Guna: ID / PASS / XXX days';
+    statusEl.textContent = '⚠️ Format tak dikenali.';
     statusEl.className = 'smart-paste-status fail';
   }
 }

@@ -632,7 +632,7 @@ function buildWorkbook() {
       'ID': c.id,
       'PASS': c.pass,
       'IPTV': c.iptv,
-      'BULAN SUBSCRIBE': c.tarikhSubscribe,
+      'BULAN SUBSCRIBE': toYMD(c.tarikhSubscribe),
       'TEMPOH (HARI)': c.tempoh,
       'TARIKH TAMAT': fmtDate(info.tamatDate),
       'REMAINING DAYS': info.diffDays,
@@ -780,8 +780,32 @@ async function initAutoExport() {
   updateExportBtn();
 }
 
+/* ---------- Normalise tarikh ke format YYYY-MM-DD (waktu tempatan) ----------
+   Google Sheet auto-tukar "2026-09-15" jadi Date, dan Apps Script pulangkan
+   "2026-09-14T16:00:00.000Z". <input type="date"> cuma terima YYYY-MM-DD,
+   jadi field tarikh jadi kosong / tak boleh edit. */
+function toYMD(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  let d;
+  const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); // dd/mm/yyyy
+  if (dmy) d = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+  else d = new Date(s);
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function parseLocalDate(v) {
+  const ymd = toYMD(v);
+  if (!ymd) return new Date(NaN);
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function calcInfo(cust) {
-  const subDate = new Date(cust.tarikhSubscribe);
+  const subDate = parseLocalDate(cust.tarikhSubscribe);
   const tamatDate = new Date(subDate);
   tamatDate.setDate(tamatDate.getDate() + Number(cust.tempoh || 30));
   const today = new Date();
@@ -796,6 +820,7 @@ function calcInfo(cust) {
 }
 
 function fmtDate(d) {
+  if (!d || isNaN(d)) return '-';
   return d.toLocaleDateString('ms-MY', { day:'2-digit', month:'2-digit', year:'numeric' });
 }
 
@@ -974,7 +999,7 @@ function openAddModal() {
   document.getElementById('fId').value = '';
   document.getElementById('fPass').value = '';
   renderIptvOptions(null);
-  document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('fDate').value = toYMD(new Date());
   document.getElementById('fDuration').value = 30;
   document.getElementById('fPhone').value = '';
   document.getElementById('detailInfo').innerHTML = '';
@@ -996,7 +1021,7 @@ function openEditModal(id) {
   document.getElementById('fId').disabled = true;
   document.getElementById('fPass').value = c.pass || '';
   renderIptvOptions(c.iptv || null);
-  document.getElementById('fDate').value = c.tarikhSubscribe;
+  document.getElementById('fDate').value = toYMD(c.tarikhSubscribe);
   document.getElementById('fDuration').value = c.tempoh || 30;
   document.getElementById('fPhone').value = c.phone || '';
 
